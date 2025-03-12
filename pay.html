@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Pago con Banorte</title>
+  <!-- Etiqueta viewport para móviles -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Solo jQuery 3.3.1 -->
+  <script src="https://multicobros.banorte.com/orquestador/resources/js/jquery-3.3.1.js"></script>
+  <!-- checkoutV2.js de Banorte -->
+  <script src="https://multicobros.banorte.com/orquestador/lightbox/checkoutV2.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0; 
+      padding: 20px;
+      background-color: #f4f4f4;
+    }
+    h1 {
+      color: #E4002B;
+      text-align: center;
+    }
+    #status {
+      text-align: center;
+      margin-top: 20px;
+      font-weight: bold;
+    }
+    #payButton {
+      display: block;
+      margin: 40px auto;
+      padding: 10px 20px;
+      background-color: #E4002B;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-size: 18px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h1>Pago con Banorte</h1>
+  <p id="status">Cargando scripts...</p>
+  <button id="payButton" style="display:none;">Iniciar Pago</button>
+
+  <script>
+    // Aquí almacenaremos el clientSecret que inyectarás desde Flutter si deseas
+    // o lo dejas fijo de prueba
+    var clientSecret = "TU_CADENA_ENCRIPTADA";
+
+    // Espera a que se cargue checkoutV2.js y defina Payment
+    document.addEventListener("DOMContentLoaded", function() {
+      console.log("DOM cargado. Revisando Payment...");
+
+      verificarPaymentDisponible();
+    });
+
+    function verificarPaymentDisponible() {
+      if (typeof Payment !== "undefined" && Payment) {
+        console.log("✅ Payment está disponible.");
+        document.getElementById('status').innerText = "Listo para iniciar pago";
+        document.getElementById('payButton').style.display = "inline-block";
+
+        document.getElementById('payButton').onclick = function() {
+          iniciarPago();
+        };
+
+      } else {
+        console.log("⌛ Payment no disponible aún, reintentando...");
+        setTimeout(verificarPaymentDisponible, 1000);
+      }
+    }
+
+    function iniciarPago() {
+      console.log("🟢 Iniciando Pago con Banorte, usando Payment.setEnv('pro') y Payment.startPayment()");
+
+      try {
+        // Ajusta "pro" o "production" según lo que te haya indicado Banorte
+        Payment.setEnv("pro"); 
+        Payment.startPayment({
+          Params: clientSecret,
+          onOpened: function() {
+            console.log("Ventana de pago abierta");
+          },
+          onClosed: function() {
+            console.log("Ventana cerrada");
+            alert("La ventana de pago se cerró o se canceló");
+          },
+          onCancel: function() {
+            console.log("Pago cancelado");
+            alert("El usuario canceló el pago");
+          },
+          onError: function(err) {
+            console.error("Error en el pago:", err);
+            alert("Ocurrió un error en el pago: " + JSON.stringify(err));
+          },
+          onSuccess: function(res) {
+            console.log("Pago exitoso:", res);
+            alert("¡Pago completado exitosamente!");
+          },
+        });
+      } catch (error) {
+        console.error("Error al iniciar Payment:", error);
+        alert("Error al iniciar Payment: " + error.message);
+      }
+    }
+  </script>
+</body>
+</html>
