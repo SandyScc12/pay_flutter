@@ -3,70 +3,110 @@
 <head>
   <meta charset="utf-8">
   <title>Pago con Banorte</title>
-  <!-- Etiqueta viewport para móviles -->
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <!-- Solo jQuery 3.3.1 -->
+  <!-- Ajusta para pantallas móviles -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+  <!-- jQuery 3.3.1 -->
   <script src="https://multicobros.banorte.com/orquestador/resources/js/jquery-3.3.1.js"></script>
-  <!-- checkoutV2.js de Banorte -->
+  <!-- checkoutV2.js -->
   <script src="https://multicobros.banorte.com/orquestador/lightbox/checkoutV2.js"></script>
 
   <style>
     body {
       font-family: Arial, sans-serif;
-      margin: 0; 
-      padding: 20px;
-      background-color: #f4f4f4;
-    }
-    h1 {
-      color: #E4002B;
       text-align: center;
+      padding: 20px;
+      background-color: #f8f8f8;
+      color: #333;
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+    }
+    .container {
+      width: 90%;
+      max-width: 500px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h2 {
+      color: #E4002B;
+      margin-bottom: 15px;
     }
     #status {
-      text-align: center;
-      margin-top: 20px;
+      margin: 10px 0;
       font-weight: bold;
     }
+    #loader {
+      border: 5px solid #f3f3f3;
+      border-top: 5px solid #E4002B;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      animation: spin 1s linear infinite;
+      margin: 30px auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
     #payButton {
-      display: block;
-      margin: 40px auto;
-      padding: 10px 20px;
       background-color: #E4002B;
       color: #fff;
       border: none;
-      border-radius: 4px;
-      font-size: 18px;
+      padding: 12px 20px;
+      border-radius: 5px;
+      font-size: 16px;
       cursor: pointer;
+      margin-top: 15px;
+      display: none;
     }
   </style>
 </head>
 <body>
-  <h1>Pago con Banorte</h1>
-  <p id="status">Cargando scripts...</p>
-  <button id="payButton" style="display:none;">Iniciar Pago</button>
+  <div class="container">
+    <h2>Procesando pago con Banorte</h2>
+    <p id="status">Cargando...</p>
+    <div id="loader"></div>
+    <button id="payButton">Iniciar Pago</button>
+  </div>
 
   <script>
-    // Aquí almacenaremos el clientSecret que inyectarás desde Flutter si deseas
-    // o lo dejas fijo de prueba
-    var clientSecret = "TU_CADENA_ENCRIPTADA";
+    // OBTENER clientSecret desde la URL si lo pasaste como query param, ej ?clientSecret=...
+    const urlParams = new URLSearchParams(window.location.search);
+    let clientSecret = urlParams.get("clientSecret"); 
+    // Si no lo pasaste, podrías tenerlo definido manualmente, ej:
+    // let clientSecret = "TU_CADENA_ENCRIPTADA_PARA_PRUEBAS";
 
-    // Espera a que se cargue checkoutV2.js y defina Payment
-    document.addEventListener("DOMContentLoaded", function() {
-      console.log("DOM cargado. Revisando Payment...");
+    // Función para comunicar resultados a Flutter
+    function enviarMensajeAFlutter(mensaje) {
+      if (window.FlutterChannel) {
+        // Manda mensaje al WebView en Flutter
+        window.FlutterChannel.postMessage(mensaje);
+      }
+    }
 
+    // Esperar a que checkoutV2.js defina Payment
+    document.addEventListener('DOMContentLoaded', function() {
+      console.log("🟢 DOMContentLoaded: Revisando Payment...");
       verificarPaymentDisponible();
     });
 
     function verificarPaymentDisponible() {
       if (typeof Payment !== "undefined" && Payment) {
-        console.log("✅ Payment está disponible.");
-        document.getElementById('status').innerText = "Listo para iniciar pago";
-        document.getElementById('payButton').style.display = "inline-block";
+        console.log("✅ Payment está disponible");
+        document.getElementById('status').textContent = "Listo para iniciar pago";
+        document.getElementById('loader').style.display = 'none';
+        document.getElementById('payButton').style.display = 'inline-block';
 
-        document.getElementById('payButton').onclick = function() {
-          iniciarPago();
-        };
-
+        // Al dar click en el botón, inicia el pago
+        document.getElementById('payButton').onclick = iniciarPago;
       } else {
         console.log("⌛ Payment no disponible aún, reintentando...");
         setTimeout(verificarPaymentDisponible, 1000);
@@ -77,33 +117,35 @@
       console.log("🟢 Iniciando Pago con Banorte, usando Payment.setEnv('pro') y Payment.startPayment()");
 
       try {
-        // Ajusta "pro" o "production" según lo que te haya indicado Banorte
+        // Ajusta la clave según tu entorno Banorte: "pro", "production", etc.
         Payment.setEnv("pro"); 
+
         Payment.startPayment({
           Params: clientSecret,
-          onOpened: function() {
+          onOpened: () => {
             console.log("Ventana de pago abierta");
           },
-          onClosed: function() {
+          onClosed: () => {
             console.log("Ventana cerrada");
-            alert("La ventana de pago se cerró o se canceló");
+            enviarMensajeAFlutter("error:Pago cancelado por el usuario");
           },
-          onCancel: function() {
+          onCancel: () => {
             console.log("Pago cancelado");
-            alert("El usuario canceló el pago");
+            enviarMensajeAFlutter("error:Pago cancelado");
           },
-          onError: function(err) {
+          onError: (err) => {
             console.error("Error en el pago:", err);
-            alert("Ocurrió un error en el pago: " + JSON.stringify(err));
+            enviarMensajeAFlutter("error:" + JSON.stringify(err));
           },
-          onSuccess: function(res) {
+          onSuccess: (res) => {
             console.log("Pago exitoso:", res);
-            alert("¡Pago completado exitosamente!");
+            enviarMensajeAFlutter("success:Pago completado");
+            document.getElementById('status').textContent = "¡Pago completado exitosamente!";
           },
         });
       } catch (error) {
         console.error("Error al iniciar Payment:", error);
-        alert("Error al iniciar Payment: " + error.message);
+        enviarMensajeAFlutter("error:" + error.message);
       }
     }
   </script>
