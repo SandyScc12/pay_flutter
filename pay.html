@@ -101,6 +101,10 @@
     let orderId = params.get('orderId') || '';
     let amount = params.get('amount') || '';
     
+    // Guardar explícitamente en sessionStorage para que checkoutV2.js los encuentre
+    sessionStorage.setItem("numeroControl", orderId);
+    sessionStorage.setItem("monto", amount);
+    
     // Auxiliar para comunicación con Flutter
     function enviarMensajeAFlutter(mensaje) {
       try {
@@ -127,6 +131,12 @@
       }
       
       log("✅ ClientSecret recibido: " + clientSecret.substring(0, 20) + "...");
+      log("📋 Order ID: " + orderId);
+      log("💰 Monto: " + amount);
+      
+      // Crear objetos globales que Banorte podría estar buscando
+      window.numeroControl = orderId;
+      window.monto = amount;
       
       // Verificar disponibilidad de Payment API
       verificarPaymentDisponible();
@@ -165,10 +175,23 @@
         // Preparar autenticación manual primero
         log("🔑 Enviando autenticación a Banorte");
         
-        // Método 1: Autenticación manual primero (como se ve en la captura de pantalla)
+        // Configurar para peticiones CORS
+        $.ajaxSetup({
+          xhrFields: {
+            withCredentials: true
+          },
+          crossDomain: true
+        });
+        
+        // Método 1: Autenticación manual primero
         $.ajax({
           url: "https://multicobros.banorte.com/orquestador/authenticateV2",
-          data: JSON.stringify({ crypt: clientSecret }), // EXACTAMENTE como en la captura de pantalla
+          data: JSON.stringify({ 
+            crypt: clientSecret,
+            // Incluir datos adicionales que podría necesitar
+            numeroControl: orderId,
+            monto: amount
+          }),
           contentType: "application/json",
           dataType: "json",
           type: "POST",
@@ -178,8 +201,25 @@
             if (response && response.token) {
               log("✅ Token recibido: " + response.token.substring(0, 10) + "...");
               
-              // Almacenar el token en sessionStorage (parece que checkoutV2.js lo necesita)
+              // Almacenar el token y otros datos en sessionStorage
               sessionStorage.setItem("token", response.token);
+              
+              // Guardar datos adicionales de la respuesta si existen
+              if (response.numeroControl) {
+                sessionStorage.setItem("numeroControl", response.numeroControl);
+                log("📋 Número de control recibido: " + response.numeroControl);
+              }
+              
+              if (response.monto) {
+                sessionStorage.setItem("monto", response.monto);
+                log("💰 Monto recibido: " + response.monto);
+              }
+              
+              // Guardar datos del formulario si están presentes
+              if (response.form) {
+                sessionStorage.setItem("form", JSON.stringify(response.form));
+                log("📑 Datos de formulario recibidos");
+              }
               
               // Ahora iniciar el pago
               abrirPagoConToken(response.token);
@@ -210,10 +250,19 @@
       log("🚀 Abriendo pago con token recibido");
       
       try {
-        // Usar el token recibido para iniciar el pago
-        Payment.startPayment({
-          crypt: clientSecret,  // Pasamos crypt como se ve en la captura de pantalla
+        // Crear un objeto con TODOS los datos posibles que Banorte podría necesitar
+        const paymentOptions = {
+          crypt: clientSecret,
           token: token,
+          numeroControl: orderId,
+          monto: amount,
+          // Datos precargados desde sessionStorage
+          moneda: "MXN",
+          tipo: "venta",
+          datos: {
+            numeroControl: orderId,
+            monto: amount
+          },
           onOpened: function() {
             log("✅ Ventana de pago abierta");
             document.getElementById('status').innerText = "Procesando pago...";
@@ -233,13 +282,28 @@
             document.getElementById('status').innerText = "Error en el pago";
             enviarMensajeAFlutter("error:" + JSON.stringify(err));
             document.getElementById('payButton').disabled = false;
+            
+            // Mostrar detalles del error
+            if (err && err.message) {
+              log("📋 Detalle del error: " + err.message);
+            }
+            
+            // Mostrar si hay problema con los datos
+            log("📋 Estado actual de datos:");
+            log("- numeroControl en sessionStorage: " + sessionStorage.getItem("numeroControl"));
+            log("- monto en sessionStorage: " + sessionStorage.getItem("monto"));
+            log("- token en sessionStorage: " + (sessionStorage.getItem("token") ? "presente" : "ausente"));
           },
           onSuccess: function(res) {
             log("✅ Pago exitoso: " + JSON.stringify(res));
             document.getElementById('status').innerText = "¡Pago completado exitosamente!";
             enviarMensajeAFlutter("success:Pago completado");
           }
-        });
+        };
+        
+        // Intentar iniciar el pago
+        Payment.startPayment(paymentOptions);
+        
       } catch (error) {
         log("❌ Error al abrir pago: " + error.message);
         document.getElementById('status').innerText = "Error al abrir pago";
@@ -251,9 +315,16 @@
       log("🚀 Intentando método directo sin autenticación previa");
       
       try {
-        // Intento alternativo directo (por si el método principal falla)
-        Payment.startPayment({
-          crypt: clientSecret,  // Pasamos clientSecret como 'crypt'
+        // Intento alternativo directo
+        const paymentOptions = {
+          crypt: clientSecret,
+          numeroControl: orderId,
+          monto: amount,
+          // Incluir estructura de datos adicional
+          datos: {
+            numeroControl: orderId,
+            monto: amount
+          },
           onOpened: function() {
             log("✅ Ventana de pago abierta (método directo)");
             document.getElementById('status').innerText = "Procesando pago...";
@@ -279,7 +350,10 @@
             document.getElementById('status').innerText = "¡Pago completado exitosamente!";
             enviarMensajeAFlutter("success:Pago completado");
           }
-        });
+        };
+        
+        Payment.startPayment(paymentOptions);
+        
       } catch (error) {
         log("❌ Error en método directo: " + error.message);
         document.getElementById('status').innerText = "Error al procesar el pago";
