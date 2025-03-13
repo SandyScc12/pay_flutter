@@ -4,11 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Pago con Banorte</title>
-
   <!-- Incluir solo los scripts necesarios de Banorte -->
   <script src="https://multicobros.banorte.com/orquestador/resources/js/jquery-3.3.1.js"></script>
   <script src="https://multicobros.banorte.com/orquestador/lightbox/checkoutV2.js"></script>
-
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -59,6 +57,17 @@
       cursor: pointer;
       margin-top: 15px;
     }
+    #debug {
+      margin-top: 20px;
+      text-align: left;
+      font-size: 12px;
+      background-color: #f0f0f0;
+      padding: 10px;
+      border-radius: 4px;
+      max-height: 150px;
+      overflow-y: auto;
+      display: none;
+    }
   </style>
 </head>
 <body>
@@ -68,115 +77,192 @@
     <div class="loader" id="loader"></div>
     
     <button id="payButton" class="button" style="display:none;">Iniciar Pago</button>
+    
+    <div id="debug"></div>
   </div>
-
   <script>
+    // Función para depuración
+    function log(message) {
+      console.log(message);
+      const debug = document.getElementById('debug');
+      const now = new Date().toLocaleTimeString();
+      debug.innerHTML += `<div>[${now}] ${message}</div>`;
+      debug.scrollTop = debug.scrollHeight;
+    }
+    
+    // Para mostrar panel de depuración (activar en caso necesario)
+    function showDebug() {
+      document.getElementById('debug').style.display = 'block';
+    }
+    
     // Obtiene el clientSecret de la URL
     const params = new URLSearchParams(window.location.search);
     let clientSecret = params.get('clientSecret');
-
+    // También obtener otros parámetros que podrían ser útiles
+    let orderId = params.get('orderId') || '';
+    let amount = params.get('amount') || '';
+    
+    // Guardar datos en sessionStorage para que estén disponibles
+    if (orderId) {
+      sessionStorage.setItem("numeroControl", orderId);
+    }
+    if (amount) {
+      sessionStorage.setItem("monto", amount);
+    }
+    
     function enviarMensajeAFlutter(mensaje) {
       if (window.FlutterChannel) {
         window.FlutterChannel.postMessage(mensaje);
       }
     }
-
+    
     document.addEventListener('DOMContentLoaded', function() {
-      console.log("🟢 DOMContentLoaded: Verificando Payment");
+      log("🟢 DOMContentLoaded: Verificando Payment");
+      
+      // Activar depuración si es necesario
+      // showDebug();
+      
       verificarPaymentDisponible();
     });
-
+    
     function verificarPaymentDisponible() {
       if (typeof Payment !== 'undefined' && Payment) {
-        console.log("✅ Payment está disponible");
-
+        log("✅ Payment está disponible");
         document.getElementById('status').innerText = "Listo para iniciar pago.";
         document.getElementById('loader').style.display = 'none';
         document.getElementById('payButton').style.display = 'inline-block';
-
         document.getElementById('payButton').onclick = function() {
           iniciarPago();
         };
+        
+        // Iniciar automáticamente después de 1 segundo
+        setTimeout(iniciarPago, 1000);
       } else {
-        console.log("🔵 Payment no disponible aún, reintentando...");
+        log("🔵 Payment no disponible aún, reintentando...");
         setTimeout(verificarPaymentDisponible, 1000);
       }
     }
-
+    
     function iniciarPago() {
-      console.log("🟢 clientSecret antes de iniciar pago:", clientSecret);
-      console.log("🟢 Iniciando pago con Payment API (checkoutV2.js)");
-
+      log("🟢 Iniciando proceso de pago");
+      document.getElementById('status').innerText = "Conectando con Banorte...";
+      document.getElementById('payButton').disabled = true;
+      
       try {
         Payment.setEnv("pro"); 
-
-        console.log("🔍 Enviando clientSecret a authenticateV2:", clientSecret);
+        log("🔍 Enviando clientSecret a authenticateV2");
         
-        // PRUEBA: Validar si authenticateV2 responde bien
+        // Intentar autenticación con el servidor de Banorte
         $.ajax({
             url: "https://multicobros.banorte.com/orquestador/authenticateV2",
             data: JSON.stringify({ crypt: clientSecret }),
-            headers: { "Content-Type": "application/json", "Accept": "text/plain; charset=utf-8;" },
+            headers: { 
+              "Content-Type": "application/json", 
+              "Accept": "text/plain; charset=utf-8;"
+            },
             type: 'POST',
             success: function (response) {
-                console.log("✅ Respuesta exitosa de authenticateV2:", response);
-                sessionStorage.setItem("token", response.token);
-                ejecutarPago(response.token);
+                log("✅ Autenticación exitosa");
+                
+                // Guardar el token en sessionStorage
+                if (response && response.token) {
+                    sessionStorage.setItem("token", response.token);
+                    
+                    // Si hay un numeroControl y monto en la respuesta, guardarlos también
+                    if (response.numeroControl) {
+                        sessionStorage.setItem("numeroControl", response.numeroControl);
+                        log("📋 Número de control recibido: " + response.numeroControl);
+                    }
+                    if (response.monto) {
+                        sessionStorage.setItem("monto", response.monto);
+                        log("💰 Monto recibido: " + response.monto);
+                    }
+                    
+                    ejecutarPago(response.token);
+                } else {
+                    log("⚠️ No se recibió token en la respuesta");
+                    enviarMensajeAFlutter("error:No se recibió token de autenticación");
+                }
             },
             error: function (error) {
-                console.error("🔴 Error en authenticateV2:", error);
+                log("🔴 Error en autenticación: " + JSON.stringify(error));
                 enviarMensajeAFlutter("error:No se pudo autenticar el usuario");
+                
+                // Mostrar el botón de reintento
+                document.getElementById('payButton').disabled = false;
+                document.getElementById('status').innerText = "Error de conexión. Reintente.";
             }
         });
-
       } catch (error) {
-        console.error("🔴 Error al iniciar Payment:", error);
+        log("🔴 Error al iniciar Payment: " + error.message);
         enviarMensajeAFlutter("error:" + error.message);
+        
+        // Mostrar el botón de reintento
+        document.getElementById('payButton').disabled = false;
+        document.getElementById('status').innerText = "Error. Reintente.";
       }
     }
-
+    
     function ejecutarPago(token) {
-      console.log("🟢 Ejecutando pago con token recibido:", token);
-
+      log("🟢 Ejecutando pago con token recibido");
+      document.getElementById('status').innerText = "Procesando pago...";
+      
       try {
-        Payment.startPayment({
+        // Obtener datos almacenados (por si fueron guardados durante authenticateV2)
+        const storedNumeroControl = sessionStorage.getItem("numeroControl") || orderId;
+        const storedMonto = sessionStorage.getItem("monto") || amount;
+        
+        // Registrar los valores que se usarán
+        log("📋 Usando número de control: " + storedNumeroControl);
+        log("💰 Usando monto: " + storedMonto);
+        
+        // Crear un objeto completo con todos los datos necesarios
+        const paymentData = {
           Params: {
             crypt: clientSecret  
           },
+          // Estos campos pueden ser necesarios para que Banorte los utilice internamente
           form: '',   
-          crypt: clientSecret,  
+          crypt: clientSecret,
+          token: token,
+          numeroControl: storedNumeroControl,  // Incluir explícitamente
+          monto: storedMonto,                 // Incluir explícitamente
           onOpened: () => {
-            console.log("🔵 Ventana de pago abierta");
+            log("🔵 Ventana de pago abierta");
+            document.getElementById('status').innerText = "Procesando pago...";
           },
           onClosed: () => {
-            console.log("🔵 Ventana de pago cerrada");
+            log("🔵 Ventana de pago cerrada");
+            document.getElementById('status').innerText = "Pago cancelado";
             enviarMensajeAFlutter("error:Pago cancelado por el usuario");
           },
           onCancel: () => {
-            console.log("🔵 Pago cancelado");
+            log("🔵 Pago cancelado");
+            document.getElementById('status').innerText = "Pago cancelado";
             enviarMensajeAFlutter("error:Pago cancelado");
           },
           onError: (err) => {
-            console.error("🔴 Error en el pago:", err);
-        
-            if (err.numeroControl) {
-                console.error("📌 Número de control:", err.numeroControl);
-            } else {
-                console.warn("⚠️ No se recibió numeroControl. Respuesta incompleta.");
-            }
-        
+            log("🔴 Error en el pago: " + JSON.stringify(err));
+            document.getElementById('status').innerText = "Error en el pago";
             enviarMensajeAFlutter("error:" + JSON.stringify(err));
           },
           onSuccess: (res) => {
-            console.log("✅ Pago exitoso:", res);
-            enviarMensajeAFlutter("success:Pago completado");
+            log("✅ Pago exitoso: " + JSON.stringify(res));
             document.getElementById('status').innerText = "¡Pago completado exitosamente!";
+            enviarMensajeAFlutter("success:Pago completado");
           },
-        });
-
+        };
+        
+        // Iniciar el pago con todos los datos
+        Payment.startPayment(paymentData);
+        
       } catch (error) {
-        console.error("🔴 Error al ejecutar Payment:", error);
+        log("🔴 Error al ejecutar pago: " + error.message);
+        document.getElementById('status').innerText = "Error en el pago";
         enviarMensajeAFlutter("error:" + error.message);
+        
+        // Mostrar el botón de reintento
+        document.getElementById('payButton').disabled = false;
       }
     }
   </script>
