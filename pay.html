@@ -66,13 +66,7 @@
       border-radius: 4px;
       max-height: 150px;
       overflow-y: auto;
-      display: block; /* Siempre visible para depuración */
-    }
-    .option-buttons {
-      display: flex;
-      justify-content: center;
-      gap: 10px;
-      margin-top: 15px;
+      display: none;
     }
   </style>
 </head>
@@ -82,22 +76,11 @@
     <p id="status">Cargando...</p>
     <div class="loader" id="loader"></div>
     
-    <div id="buttons" style="display:none;">
-      <button id="payButton" class="button">Iniciar Pago</button>
-      
-      <div class="option-buttons">
-        <button id="optionA" class="button" style="background-color: #2c3e50; font-size: 12px;">Método A</button>
-        <button id="optionB" class="button" style="background-color: #2c3e50; font-size: 12px;">Método B</button>
-        <button id="optionC" class="button" style="background-color: #2c3e50; font-size: 12px;">Método C</button>
-      </div>
-    </div>
+    <button id="payButton" class="button" style="display:none;">Iniciar Pago</button>
     
     <div id="debug"></div>
   </div>
   <script>
-    // Variables globales de control
-    let paymentOptionUsed = 'default';
-    
     // Función para depuración
     function log(message) {
       console.log(message);
@@ -107,16 +90,10 @@
       debug.scrollTop = debug.scrollHeight;
     }
     
-    // Monitorear errores en la consola
-    const originalConsoleError = console.error;
-    console.error = function() {
-      // Log original
-      originalConsoleError.apply(console, arguments);
-      
-      // Capturar y mostrar en nuestro debug
-      const errorMsg = Array.from(arguments).join(' ');
-      log("🔴 Error capturado: " + errorMsg);
-    };
+    // Para mostrar panel de depuración
+    function showDebug() {
+      document.getElementById('debug').style.display = 'block';
+    }
     
     // Obtiene el clientSecret de la URL
     const params = new URLSearchParams(window.location.search);
@@ -124,29 +101,9 @@
     let orderId = params.get('orderId') || '';
     let amount = params.get('amount') || '';
     
-    // Limpiar sessionStorage y localStorage al inicio
-    try {
-      sessionStorage.clear();
-      localStorage.clear();
-      log("🧹 Storage limpiado");
-    } catch (e) {
-      log("⚠️ Error al limpiar storage: " + e.message);
-    }
-    
-    // Guardar datos explícitamente en múltiples lugares
-    try {
-      // 1. En sessionStorage
-      sessionStorage.setItem("numeroControl", orderId);
-      sessionStorage.setItem("monto", amount);
-      
-      // 2. Como variables globales
-      window.numeroControl = orderId;
-      window.monto = amount;
-      
-      log("✅ Datos guardados correctamente");
-    } catch (e) {
-      log("⚠️ Error al guardar datos: " + e.message);
-    }
+    // Guardar explícitamente en sessionStorage para que checkoutV2.js los encuentre
+    sessionStorage.setItem("numeroControl", orderId);
+    sessionStorage.setItem("monto", amount);
     
     // Auxiliar para comunicación con Flutter
     function enviarMensajeAFlutter(mensaje) {
@@ -162,6 +119,9 @@
     document.addEventListener('DOMContentLoaded', function() {
       log("🟢 Página cargada. Iniciando proceso...");
       
+      // Activar depuración
+      showDebug();
+      
       // Verificar si tenemos el clientSecret
       if (!clientSecret) {
         log("❌ No se recibió clientSecret");
@@ -174,24 +134,12 @@
       log("📋 Order ID: " + orderId);
       log("💰 Monto: " + amount);
       
+      // Crear objetos globales que Banorte podría estar buscando
+      window.numeroControl = orderId;
+      window.monto = amount;
+      
       // Verificar disponibilidad de Payment API
       verificarPaymentDisponible();
-      
-      // Configurar botones de método alternativo
-      document.getElementById('optionA').onclick = function() {
-        paymentOptionUsed = 'A';
-        iniciarPagoConOpcionA();
-      };
-      
-      document.getElementById('optionB').onclick = function() {
-        paymentOptionUsed = 'B';
-        iniciarPagoConOpcionB();
-      };
-      
-      document.getElementById('optionC').onclick = function() {
-        paymentOptionUsed = 'C';
-        iniciarPagoConOpcionC();
-      };
     });
     
     function verificarPaymentDisponible() {
@@ -199,12 +147,15 @@
         log("✅ API de Payment disponible");
         document.getElementById('status').innerText = "Listo para iniciar pago";
         document.getElementById('loader').style.display = 'none';
-        document.getElementById('buttons').style.display = 'block';
+        document.getElementById('payButton').style.display = 'inline-block';
         
-        // Asignar evento al botón principal
+        // Asignar evento al botón
         document.getElementById('payButton').onclick = function() {
           iniciarPago();
         };
+        
+        // Iniciar automáticamente
+        setTimeout(iniciarPago, 500);
       } else {
         log("⏳ API de Payment no disponible aún, reintentando...");
         setTimeout(verificarPaymentDisponible, 500);
@@ -247,18 +198,6 @@
           success: function(response) {
             log("✅ Autenticación exitosa");
             
-            // Mostrar respuesta completa
-            log("📋 Respuesta completa:");
-            for (const key in response) {
-              if (key === 'token') {
-                log(`- token: ${response.token.substring(0, 10)}...`);
-              } else if (typeof response[key] === 'object') {
-                log(`- ${key}: ${JSON.stringify(response[key])}`);
-              } else {
-                log(`- ${key}: ${response[key]}`);
-              }
-            }
-            
             if (response && response.token) {
               log("✅ Token recibido: " + response.token.substring(0, 10) + "...");
               
@@ -274,6 +213,12 @@
               if (response.monto) {
                 sessionStorage.setItem("monto", response.monto);
                 log("💰 Monto recibido: " + response.monto);
+              }
+              
+              // Guardar datos del formulario si están presentes
+              if (response.form) {
+                sessionStorage.setItem("form", JSON.stringify(response.form));
+                log("📑 Datos de formulario recibidos");
               }
               
               // Ahora iniciar el pago
@@ -337,6 +282,17 @@
             document.getElementById('status').innerText = "Error en el pago";
             enviarMensajeAFlutter("error:" + JSON.stringify(err));
             document.getElementById('payButton').disabled = false;
+            
+            // Mostrar detalles del error
+            if (err && err.message) {
+              log("📋 Detalle del error: " + err.message);
+            }
+            
+            // Mostrar si hay problema con los datos
+            log("📋 Estado actual de datos:");
+            log("- numeroControl en sessionStorage: " + sessionStorage.getItem("numeroControl"));
+            log("- monto en sessionStorage: " + sessionStorage.getItem("monto"));
+            log("- token en sessionStorage: " + (sessionStorage.getItem("token") ? "presente" : "ausente"));
           },
           onSuccess: function(res) {
             log("✅ Pago exitoso: " + JSON.stringify(res));
@@ -364,6 +320,11 @@
           crypt: clientSecret,
           numeroControl: orderId,
           monto: amount,
+          // Incluir estructura de datos adicional
+          datos: {
+            numeroControl: orderId,
+            monto: amount
+          },
           onOpened: function() {
             log("✅ Ventana de pago abierta (método directo)");
             document.getElementById('status').innerText = "Procesando pago...";
@@ -397,183 +358,6 @@
         log("❌ Error en método directo: " + error.message);
         document.getElementById('status').innerText = "Error al procesar el pago";
         document.getElementById('payButton').disabled = false;
-      }
-    }
-    
-    // MÉTODOS ALTERNATIVOS
-    
-    // Método A: Usando Params como string
-    function iniciarPagoConOpcionA() {
-      log("🧪 Iniciando método alternativo A");
-      document.getElementById('status').innerText = "Probando método alternativo A...";
-      
-      try {
-        // Establecer el entorno de Banorte
-        Payment.setEnv("pro");
-        
-        const paymentOptions = {
-          Params: clientSecret,  // Pasando clientSecret como Params directamente
-          onOpened: function() {
-            log("✅ Ventana de pago abierta (método A)");
-            document.getElementById('status').innerText = "Procesando pago...";
-          },
-          onClosed: function() {
-            log("⚠️ Ventana de pago cerrada (método A)");
-            document.getElementById('status').innerText = "Pago cancelado";
-            enviarMensajeAFlutter("error:Pago cancelado por el usuario");
-          },
-          onCancel: function() {
-            log("⚠️ Pago cancelado (método A)");
-            document.getElementById('status').innerText = "Pago cancelado";
-            enviarMensajeAFlutter("error:Pago cancelado");
-          },
-          onError: function(err) {
-            log("❌ Error en el pago (método A): " + JSON.stringify(err));
-            document.getElementById('status').innerText = "Error en el pago";
-            enviarMensajeAFlutter("error:" + JSON.stringify(err));
-          },
-          onSuccess: function(res) {
-            log("✅ Pago exitoso (método A): " + JSON.stringify(res));
-            document.getElementById('status').innerText = "¡Pago completado exitosamente!";
-            enviarMensajeAFlutter("success:Pago completado");
-          }
-        };
-        
-        Payment.startPayment(paymentOptions);
-        
-      } catch (error) {
-        log("❌ Error en método A: " + error.message);
-        document.getElementById('status').innerText = "Error al procesar el pago";
-      }
-    }
-    
-    // Método B: Sin hacer autenticación previa, pero con Token como objeto
-    function iniciarPagoConOpcionB() {
-      log("🧪 Iniciando método alternativo B");
-      document.getElementById('status').innerText = "Probando método alternativo B...";
-      
-      try {
-        // Establecer el entorno de Banorte
-        Payment.setEnv("pro");
-        
-        const paymentOptions = {
-          Params: {
-            crypt: clientSecret,
-            numeroControl: orderId,
-            monto: amount
-          },
-          onOpened: function() {
-            log("✅ Ventana de pago abierta (método B)");
-            document.getElementById('status').innerText = "Procesando pago...";
-          },
-          onClosed: function() {
-            log("⚠️ Ventana de pago cerrada (método B)");
-            document.getElementById('status').innerText = "Pago cancelado";
-            enviarMensajeAFlutter("error:Pago cancelado por el usuario");
-          },
-          onCancel: function() {
-            log("⚠️ Pago cancelado (método B)");
-            document.getElementById('status').innerText = "Pago cancelado";
-            enviarMensajeAFlutter("error:Pago cancelado");
-          },
-          onError: function(err) {
-            log("❌ Error en el pago (método B): " + JSON.stringify(err));
-            document.getElementById('status').innerText = "Error en el pago";
-            enviarMensajeAFlutter("error:" + JSON.stringify(err));
-          },
-          onSuccess: function(res) {
-            log("✅ Pago exitoso (método B): " + JSON.stringify(res));
-            document.getElementById('status').innerText = "¡Pago completado exitosamente!";
-            enviarMensajeAFlutter("success:Pago completado");
-          }
-        };
-        
-        Payment.startPayment(paymentOptions);
-        
-      } catch (error) {
-        log("❌ Error en método B: " + error.message);
-        document.getElementById('status').innerText = "Error al procesar el pago";
-      }
-    }
-    
-    // Método C: Forzando creación de formulario
-    function iniciarPagoConOpcionC() {
-      log("🧪 Iniciando método alternativo C");
-      document.getElementById('status').innerText = "Probando método alternativo C...";
-      
-      try {
-        // Establecer el entorno de Banorte
-        Payment.setEnv("pro");
-        
-        // Primero autenticar manualmente
-        $.ajax({
-          url: "https://multicobros.banorte.com/orquestador/authenticateV2",
-          data: JSON.stringify({ crypt: clientSecret }),
-          contentType: "application/json",
-          dataType: "json",
-          type: "POST",
-          success: function(response) {
-            if (response && response.token) {
-              log("✅ Autenticación exitosa (método C)");
-              
-              // Crear un formulario oculto como fallback
-              const formHTML = `
-                <form id="paymentForm" method="post" action="https://multicobros.banorte.com/orquestador/payment" style="display:none">
-                  <input type="hidden" name="crypt" value="${clientSecret}">
-                  <input type="hidden" name="token" value="${response.token}">
-                  <input type="hidden" name="numeroControl" value="${orderId}">
-                  <input type="hidden" name="monto" value="${amount}">
-                </form>
-              `;
-              
-              // Añadir el formulario al DOM
-              document.body.insertAdjacentHTML('beforeend', formHTML);
-              
-              // Ahora intentar con el formulario como respaldo
-              const paymentOptions = {
-                form: 'paymentForm',
-                crypt: clientSecret,
-                token: response.token,
-                numeroControl: orderId,
-                monto: amount,
-                onOpened: function() {
-                  log("✅ Ventana de pago abierta (método C)");
-                  document.getElementById('status').innerText = "Procesando pago...";
-                },
-                onClosed: function() {
-                  log("⚠️ Ventana de pago cerrada (método C)");
-                  document.getElementById('status').innerText = "Pago cancelado";
-                  enviarMensajeAFlutter("error:Pago cancelado por el usuario");
-                },
-                onCancel: function() {
-                  log("⚠️ Pago cancelado (método C)");
-                  document.getElementById('status').innerText = "Pago cancelado";
-                  enviarMensajeAFlutter("error:Pago cancelado");
-                },
-                onError: function(err) {
-                  log("❌ Error en el pago (método C): " + JSON.stringify(err));
-                  document.getElementById('status').innerText = "Error en el pago";
-                  enviarMensajeAFlutter("error:" + JSON.stringify(err));
-                },
-                onSuccess: function(res) {
-                  log("✅ Pago exitoso (método C): " + JSON.stringify(res));
-                  document.getElementById('status').innerText = "¡Pago completado exitosamente!";
-                  enviarMensajeAFlutter("success:Pago completado");
-                }
-              };
-              
-              Payment.startPayment(paymentOptions);
-            }
-          },
-          error: function(xhr, status, error) {
-            log("❌ Error en autenticación (método C): " + error);
-            document.getElementById('status').innerText = "Error en autenticación";
-          }
-        });
-        
-      } catch (error) {
-        log("❌ Error en método C: " + error.message);
-        document.getElementById('status').innerText = "Error al procesar el pago";
       }
     }
   </script>
