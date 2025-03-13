@@ -66,7 +66,7 @@
       border-radius: 4px;
       max-height: 150px;
       overflow-y: auto;
-      display: none;
+      display: block; /* Siempre visible para depuración */
     }
   </style>
 </head>
@@ -81,6 +81,25 @@
     <div id="debug"></div>
   </div>
   <script>
+    // Monitorear accesos a sessionStorage y localStorage
+    const originalGetItem = Storage.prototype.getItem;
+    Storage.prototype.getItem = function(key) {
+      const value = originalGetItem.call(this, key);
+      log(`🔍 ${this === sessionStorage ? 'sessionStorage' : 'localStorage'}.getItem('${key}') = ${value}`);
+      return value;
+    };
+    
+    // Monitorear errores en la consola
+    const originalConsoleError = console.error;
+    console.error = function() {
+      // Log original
+      originalConsoleError.apply(console, arguments);
+      
+      // Capturar y mostrar en nuestro debug
+      const errorMsg = Array.from(arguments).join(' ');
+      log("🔴 Error capturado: " + errorMsg);
+    };
+    
     // Función para depuración
     function log(message) {
       console.log(message);
@@ -101,9 +120,31 @@
     let orderId = params.get('orderId') || '';
     let amount = params.get('amount') || '';
     
-    // Guardar explícitamente en sessionStorage para que checkoutV2.js los encuentre
-    sessionStorage.setItem("numeroControl", orderId);
-    sessionStorage.setItem("monto", amount);
+    // Guardar datos en múltiples lugares
+    try {
+      // 1. En sessionStorage
+      sessionStorage.setItem("numeroControl", orderId);
+      sessionStorage.setItem("monto", amount);
+      
+      // 2. En localStorage como respaldo
+      localStorage.setItem("numeroControl", orderId);
+      localStorage.setItem("monto", amount);
+      
+      // 3. Como variables globales
+      window.numeroControl = orderId;
+      window.monto = amount;
+      
+      log("✅ Datos guardados en múltiples ubicaciones");
+    } catch (e) {
+      log("⚠️ Error al guardar datos: " + e.message);
+    }
+    
+    // Mostrar contenido actual de sessionStorage
+    log("📋 Contenido de sessionStorage al inicio:");
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const key = sessionStorage.key(i);
+      log(`- ${key}: ${sessionStorage.getItem(key)}`);
+    }
     
     // Auxiliar para comunicación con Flutter
     function enviarMensajeAFlutter(mensaje) {
@@ -119,7 +160,7 @@
     document.addEventListener('DOMContentLoaded', function() {
       log("🟢 Página cargada. Iniciando proceso...");
       
-      // Activar depuración
+      // Mostrar panel de debug siempre visible
       showDebug();
       
       // Verificar si tenemos el clientSecret
@@ -134,9 +175,13 @@
       log("📋 Order ID: " + orderId);
       log("💰 Monto: " + amount);
       
-      // Crear objetos globales que Banorte podría estar buscando
-      window.numeroControl = orderId;
-      window.monto = amount;
+      // Verificar propiedades disponibles en el objeto Payment
+      if (typeof Payment !== 'undefined') {
+        log("📋 Propiedades y métodos en objeto Payment:");
+        for (const prop in Payment) {
+          log(`- ${prop}: ${typeof Payment[prop]}`);
+        }
+      }
       
       // Verificar disponibilidad de Payment API
       verificarPaymentDisponible();
@@ -174,6 +219,10 @@
         
         // Preparar autenticación manual primero
         log("🔑 Enviando autenticación a Banorte");
+        log("📌 Datos enviados a authenticateV2:");
+        log(`- crypt: ${clientSecret.substring(0, 20)}...`);
+        log(`- numeroControl: ${orderId}`);
+        log(`- monto: ${amount}`);
         
         // Configurar para peticiones CORS
         $.ajaxSetup({
@@ -198,6 +247,18 @@
           success: function(response) {
             log("✅ Autenticación exitosa");
             
+            // Mostrar respuesta completa
+            log("📋 Respuesta authenticateV2 completa:");
+            for (const key in response) {
+              if (key === 'token') {
+                log(`- token: ${response.token.substring(0, 10)}...`);
+              } else if (typeof response[key] === 'object') {
+                log(`- ${key}: ${JSON.stringify(response[key])}`);
+              } else {
+                log(`- ${key}: ${response[key]}`);
+              }
+            }
+            
             if (response && response.token) {
               log("✅ Token recibido: " + response.token.substring(0, 10) + "...");
               
@@ -219,6 +280,13 @@
               if (response.form) {
                 sessionStorage.setItem("form", JSON.stringify(response.form));
                 log("📑 Datos de formulario recibidos");
+              }
+              
+              // Verificar estado de sessionStorage antes de iniciar pago
+              log("📋 Contenido de sessionStorage antes de iniciar pago:");
+              for (let i = 0; i < sessionStorage.length; i++) {
+                const key = sessionStorage.key(i);
+                log(`- ${key}: ${sessionStorage.getItem(key)}`);
               }
               
               // Ahora iniciar el pago
@@ -301,7 +369,17 @@
           }
         };
         
+        log("📋 Opciones de pago enviadas a startPayment:");
+        for (const key in paymentOptions) {
+          if (typeof paymentOptions[key] !== 'function') {
+            log(`- ${key}: ${typeof paymentOptions[key] === 'object' ? JSON.stringify(paymentOptions[key]) : paymentOptions[key]}`);
+          } else {
+            log(`- ${key}: [Función]`);
+          }
+        }
+        
         // Intentar iniciar el pago
+        log("🔥 Llamando a Payment.startPayment con las opciones configuradas");
         Payment.startPayment(paymentOptions);
         
       } catch (error) {
@@ -315,50 +393,68 @@
       log("🚀 Intentando método directo sin autenticación previa");
       
       try {
-        // Intento alternativo directo
-        const paymentOptions = {
-          crypt: clientSecret,
+        // Intentar con estructura alternativa
+        log("🔍 Probando estructura alternativa de opciones");
+        const alternativeOptions = {
+          Params: clientSecret,  // Intentar con Params como string
           numeroControl: orderId,
           monto: amount,
-          // Incluir estructura de datos adicional
-          datos: {
-            numeroControl: orderId,
-            monto: amount
-          },
           onOpened: function() {
-            log("✅ Ventana de pago abierta (método directo)");
+            log("✅ Ventana de pago abierta (método alternativo)");
             document.getElementById('status').innerText = "Procesando pago...";
           },
           onClosed: function() {
-            log("⚠️ Ventana de pago cerrada (método directo)");
+            log("⚠️ Ventana de pago cerrada (método alternativo)");
             document.getElementById('status').innerText = "Pago cancelado";
             enviarMensajeAFlutter("error:Pago cancelado por el usuario");
           },
           onCancel: function() {
-            log("⚠️ Pago cancelado (método directo)");
+            log("⚠️ Pago cancelado (método alternativo)");
             document.getElementById('status').innerText = "Pago cancelado";
             enviarMensajeAFlutter("error:Pago cancelado");
           },
           onError: function(err) {
-            log("❌ Error en el pago (método directo): " + JSON.stringify(err));
+            log("❌ Error en el pago (método alternativo): " + JSON.stringify(err));
             document.getElementById('status').innerText = "Error en el pago";
             enviarMensajeAFlutter("error:" + JSON.stringify(err));
             document.getElementById('payButton').disabled = false;
           },
           onSuccess: function(res) {
-            log("✅ Pago exitoso (método directo): " + JSON.stringify(res));
+            log("✅ Pago exitoso (método alternativo): " + JSON.stringify(res));
             document.getElementById('status').innerText = "¡Pago completado exitosamente!";
             enviarMensajeAFlutter("success:Pago completado");
           }
         };
         
-        Payment.startPayment(paymentOptions);
+        log("🔥 Llamando a Payment.startPayment con estructura alternativa");
+        Payment.startPayment(alternativeOptions);
         
       } catch (error) {
         log("❌ Error en método directo: " + error.message);
         document.getElementById('status').innerText = "Error al procesar el pago";
         document.getElementById('payButton').disabled = false;
       }
+    }
+    
+    // Intentar interceptar llamadas a funciones internas de Banorte
+    try {
+      // Función para interceptar
+      const originalFetch = window.fetch;
+      window.fetch = function() {
+        log(`🔍 Interceptado fetch: ${arguments[0]}`);
+        return originalFetch.apply(this, arguments);
+      };
+      
+      // Interceptar XMLHttpRequest
+      const originalXHROpen = XMLHttpRequest.prototype.open;
+      XMLHttpRequest.prototype.open = function() {
+        log(`🔍 Interceptado XHR: ${arguments[1]}`);
+        return originalXHROpen.apply(this, arguments);
+      };
+      
+      log("✅ Interceptores instalados correctamente");
+    } catch (e) {
+      log("⚠️ Error al instalar interceptores: " + e.message);
     }
   </script>
 </body>
