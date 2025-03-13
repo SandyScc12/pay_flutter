@@ -3,8 +3,7 @@
 <head>
   <meta charset="utf-8">
   <title>Pago con Banorte</title>
-
-  <!-- Ajusta para pantallas móviles -->
+  <!-- Ajuste viewport para móviles -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
   <!-- jQuery 3.3.1 -->
@@ -78,21 +77,18 @@
   </div>
 
   <script>
-    // OBTENER clientSecret desde la URL si lo pasaste como query param, ej ?clientSecret=...
+    // Lee el clientSecret desde la query param: ?clientSecret=...
     const urlParams = new URLSearchParams(window.location.search);
-    let clientSecret = urlParams.get("clientSecret"); 
-    // Si no lo pasaste, podrías tenerlo definido manualmente, ej:
-    // let clientSecret = "TU_CADENA_ENCRIPTADA_PARA_PRUEBAS";
+    let clientSecret = urlParams.get("clientSecret") || ""; 
 
     // Función para comunicar resultados a Flutter
     function enviarMensajeAFlutter(mensaje) {
       if (window.FlutterChannel) {
-        // Manda mensaje al WebView en Flutter
         window.FlutterChannel.postMessage(mensaje);
       }
     }
 
-    // Esperar a que checkoutV2.js defina Payment
+    // Espera a que checkoutV2.js defina Payment
     document.addEventListener('DOMContentLoaded', function() {
       console.log("🟢 DOMContentLoaded: Revisando Payment...");
       verificarPaymentDisponible();
@@ -105,7 +101,7 @@
         document.getElementById('loader').style.display = 'none';
         document.getElementById('payButton').style.display = 'inline-block';
 
-        // Al dar click en el botón, inicia el pago
+        // Al dar click, inicia el pago
         document.getElementById('payButton').onclick = iniciarPago;
       } else {
         console.log("⌛ Payment no disponible aún, reintentando...");
@@ -117,11 +113,12 @@
       console.log("🟢 Iniciando Pago con Banorte, usando Payment.setEnv('pro') y Payment.startPayment()");
 
       try {
-        // Ajusta la clave según tu entorno Banorte: "pro", "production", etc.
+        // Ajusta "pro" o "production" según tu entorno
         Payment.setEnv("pro"); 
 
+        // En lugar de "Params:", usar "crypt:" 
         Payment.startPayment({
-          Params: clientSecret,
+          crypt: clientSecret,
           onOpened: () => {
             console.log("Ventana de pago abierta");
           },
@@ -135,6 +132,7 @@
           },
           onError: (err) => {
             console.error("Error en el pago:", err);
+            // Mandar error a Flutter
             enviarMensajeAFlutter("error:" + JSON.stringify(err));
           },
           onSuccess: (res) => {
