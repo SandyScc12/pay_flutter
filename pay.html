@@ -107,7 +107,8 @@
 
     function iniciarPago() {
       console.log("🟢 Iniciando pago con Payment API (checkoutV2.js)");
-
+      print("🔍 clientSecret enviado a WebView: $_encryptedData");
+      console.log("🟢 $_encryptedData)");
       try {
         Payment.setEnv("pro"); // o 'production' si Banorte lo requiere
         
