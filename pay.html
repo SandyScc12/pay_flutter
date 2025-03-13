@@ -6,15 +6,56 @@
   <title>Pago con Banorte</title>
   <script src="https://multicobros.banorte.com/orquestador/resources/js/jquery-3.3.1.js"></script>
   <script src="https://multicobros.banorte.com/orquestador/lightbox/checkoutV2.js"></script>
-  <!-- Estilos omitidos por brevedad -->
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+      background-color: #f8f8f8;
+      color: #333;
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+    }
+    .container {
+      width: 90%;
+      max-width: 500px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    h2 {
+      color: #E4002B;
+      margin-bottom: 15px;
+    }
+    .loader {
+      border: 5px solid #f3f3f3;
+      border-top: 5px solid #E4002B;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      animation: spin 1s linear infinite;
+      margin: 30px auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    #debug {
+      display: none;
+    }
+  </style>
 </head>
 <body>
   <div class="container">
     <h2>Procesando pago con Banorte</h2>
-    <p id="status">Cargando...</p>
+    <p id="status">Iniciando pasarela de pago...</p>
     <div class="loader" id="loader"></div>
-    
-    <button id="payButton" class="button" style="display:none;">Iniciar Pago</button>
     <div id="debug"></div>
   </div>
   <script>
@@ -29,22 +70,25 @@
     sessionStorage.setItem("monto", amount);
     
     document.addEventListener('DOMContentLoaded', function() {
-      console.log("🟢 Página cargada");
+      console.log("🟢 Página cargada, iniciando pago automáticamente");
       
-      // Verificar disponibilidad de Payment API
+      // Verificar disponibilidad de Payment API e iniciar automáticamente
       if (typeof Payment !== 'undefined' && Payment) {
-        document.getElementById('status').innerText = "Listo para iniciar pago";
-        document.getElementById('loader').style.display = 'none';
-        document.getElementById('payButton').style.display = 'inline-block';
-        
-        // Iniciar al hacer clic
-        document.getElementById('payButton').onclick = function() {
-          iniciarPagoDirecto();
-        };
+        // Iniciar el pago automáticamente después de un breve retraso
+        setTimeout(iniciarPagoDirecto, 1000);
       } else {
-        setTimeout(verificarPaymentDisponible, 500);
+        // Reintentar si Payment no está disponible aún
+        checkPaymentApiAndStart();
       }
     });
+    
+    function checkPaymentApiAndStart() {
+      if (typeof Payment !== 'undefined' && Payment) {
+        iniciarPagoDirecto();
+      } else {
+        setTimeout(checkPaymentApiAndStart, 500);
+      }
+    }
     
     function iniciarPagoDirecto() {
       document.getElementById('status').innerText = "Conectando con Banorte...";
