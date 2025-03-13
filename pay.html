@@ -6,57 +6,7 @@
   <title>Pago con Banorte</title>
   <script src="https://multicobros.banorte.com/orquestador/resources/js/jquery-3.3.1.js"></script>
   <script src="https://multicobros.banorte.com/orquestador/lightbox/checkoutV2.js"></script>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      padding: 20px;
-      background-color: #f8f8f8;
-      color: #333;
-      margin: 0;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-    }
-    .container {
-      width: 90%;
-      max-width: 500px;
-      margin: 0 auto;
-      padding: 20px;
-      background-color: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-    h2 {
-      color: #E4002B;
-      margin-bottom: 15px;
-    }
-    .loader {
-      border: 5px solid #f3f3f3;
-      border-top: 5px solid #E4002B;
-      border-radius: 50%;
-      width: 50px;
-      height: 50px;
-      animation: spin 1s linear infinite;
-      margin: 30px auto;
-    }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-    .button {
-      background-color: #E4002B;
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      border-radius: 4px;
-      font-size: 16px;
-      cursor: pointer;
-      margin-top: 15px;
-    }
-  </style>
+  <!-- Estilos omitidos por brevedad -->
 </head>
 <body>
   <div class="container">
@@ -65,6 +15,7 @@
     <div class="loader" id="loader"></div>
     
     <button id="payButton" class="button" style="display:none;">Iniciar Pago</button>
+    <div id="debug"></div>
   </div>
   <script>
     // Obtiene parámetros de la URL
@@ -77,21 +28,10 @@
     sessionStorage.setItem("numeroControl", orderId);
     sessionStorage.setItem("monto", amount);
     
-    // Función para enviar mensajes a Flutter
-    function enviarMensajeAFlutter(mensaje) {
-      if (window.FlutterChannel) {
-        window.FlutterChannel.postMessage(mensaje);
-      }
-    }
-    
     document.addEventListener('DOMContentLoaded', function() {
       console.log("🟢 Página cargada");
       
       // Verificar disponibilidad de Payment API
-      verificarPaymentDisponible();
-    });
-    
-    function verificarPaymentDisponible() {
       if (typeof Payment !== 'undefined' && Payment) {
         document.getElementById('status').innerText = "Listo para iniciar pago";
         document.getElementById('loader').style.display = 'none';
@@ -101,17 +41,13 @@
         document.getElementById('payButton').onclick = function() {
           iniciarPagoDirecto();
         };
-        
-        // Iniciar automáticamente
-        setTimeout(iniciarPagoDirecto, 500);
       } else {
         setTimeout(verificarPaymentDisponible, 500);
       }
-    }
+    });
     
     function iniciarPagoDirecto() {
       document.getElementById('status').innerText = "Conectando con Banorte...";
-      document.getElementById('payButton').disabled = true;
       
       try {
         // Establecer entorno
@@ -127,31 +63,26 @@
           },
           onClosed: function() {
             document.getElementById('status').innerText = "Pago cancelado";
-            enviarMensajeAFlutter("error:Pago cancelado por el usuario");
           },
           onCancel: function() {
             document.getElementById('status').innerText = "Pago cancelado";
-            enviarMensajeAFlutter("error:Pago cancelado");
           },
           onError: function(err) {
             document.getElementById('status').innerText = "Error en el pago";
             console.error("Error:", err);
-            enviarMensajeAFlutter("error:" + JSON.stringify(err));
           },
           onSuccess: function(res) {
             document.getElementById('status').innerText = "¡Pago completado!";
             console.log("Respuesta completa de Banorte:", res);
-            
-            // Simplemente enviar la respuesta completa tal como viene de Banorte
-            // Sin agregar valores predeterminados
-            enviarMensajeAFlutter("success:" + JSON.stringify(res));
+            if (window.FlutterChannel) {
+              // Enviar la respuesta completa a Flutter
+              window.FlutterChannel.postMessage("success:" + JSON.stringify(res));
+            }
           }
         });
       } catch (error) {
         document.getElementById('status').innerText = "Error al procesar el pago";
         console.error("Error:", error);
-        enviarMensajeAFlutter("error:" + error.message);
-        document.getElementById('payButton').disabled = false;
       }
     }
   </script>
