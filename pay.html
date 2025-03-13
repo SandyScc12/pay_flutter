@@ -64,9 +64,9 @@
       background-color: #f0f0f0;
       padding: 10px;
       border-radius: 4px;
-      max-height: 200px;
+      max-height: 150px;
       overflow-y: auto;
-      display: block; /* Siempre visible para depuración */
+      display: none;
     }
   </style>
 </head>
@@ -90,34 +90,20 @@
       debug.scrollTop = debug.scrollHeight;
     }
     
+    // Para mostrar panel de depuración
+    function showDebug() {
+      document.getElementById('debug').style.display = 'block';
+    }
+    
     // Obtiene el clientSecret de la URL
     const params = new URLSearchParams(window.location.search);
     let clientSecret = params.get('clientSecret');
     let orderId = params.get('orderId') || '';
     let amount = params.get('amount') || '';
     
-    // Guardar datos explícitamente en múltiples lugares
-    // 1. En sessionStorage
+    // Guardar explícitamente en sessionStorage para que checkoutV2.js los encuentre
     sessionStorage.setItem("numeroControl", orderId);
     sessionStorage.setItem("monto", amount);
-    
-    // 2. En localStorage por si acaso
-    localStorage.setItem("numeroControl", orderId);
-    localStorage.setItem("monto", amount);
-    
-    // 3. Como variables globales
-    window.numeroControl = orderId;
-    window.monto = amount;
-    
-    // Mostramos datos guardados en storage
-    log("📋 Datos guardados en sessionStorage:");
-    log("- numeroControl: " + sessionStorage.getItem("numeroControl"));
-    log("- monto: " + sessionStorage.getItem("monto"));
-    
-    // Mostramos datos guardados como variables globales
-    log("📋 Datos guardados como variables globales:");
-    log("- window.numeroControl: " + window.numeroControl);
-    log("- window.monto: " + window.monto);
     
     // Auxiliar para comunicación con Flutter
     function enviarMensajeAFlutter(mensaje) {
@@ -130,27 +116,11 @@
       }
     }
     
-    // Instala un hook para interceptar errores de la consola
-    const originalConsoleError = console.error;
-    console.error = function() {
-      // Log original
-      originalConsoleError.apply(console, arguments);
-      
-      // Capturar y mostrar en nuestro debug
-      const errorMsg = Array.from(arguments).join(' ');
-      log("🔴 Error capturado: " + errorMsg);
-    };
-    
-    // Intercepta calls a funciones nativas
-    const nativeGetItem = Storage.prototype.getItem;
-    Storage.prototype.getItem = function(key) {
-      const value = nativeGetItem.call(this, key);
-      log(`🔍 Storage.getItem('${key}') = ${value}`);
-      return value;
-    };
-    
     document.addEventListener('DOMContentLoaded', function() {
       log("🟢 Página cargada. Iniciando proceso...");
+      
+      // Activar depuración
+      showDebug();
       
       // Verificar si tenemos el clientSecret
       if (!clientSecret) {
@@ -164,18 +134,9 @@
       log("📋 Order ID: " + orderId);
       log("💰 Monto: " + amount);
       
-      // Inspeccionar el objeto Payment
-      if (typeof Payment !== 'undefined') {
-        log("✅ Objeto Payment disponible");
-        // Ver qué métodos tiene disponibles
-        const methods = [];
-        for (const prop in Payment) {
-          if (typeof Payment[prop] === 'function') {
-            methods.push(prop);
-          }
-        }
-        log("📋 Métodos disponibles en Payment: " + methods.join(", "));
-      }
+      // Crear objetos globales que Banorte podría estar buscando
+      window.numeroControl = orderId;
+      window.monto = amount;
       
       // Verificar disponibilidad de Payment API
       verificarPaymentDisponible();
@@ -202,7 +163,7 @@
     }
     
     function iniciarPago() {
-      log("🚀 Iniciando proceso de pago para orden #" + orderId);
+      log("🚀 Iniciando proceso de pago...");
       document.getElementById('status').innerText = "Conectando con Banorte...";
       document.getElementById('payButton').disabled = true;
       
@@ -214,11 +175,20 @@
         // Preparar autenticación manual primero
         log("🔑 Enviando autenticación a Banorte");
         
+        // Configurar para peticiones CORS
+        $.ajaxSetup({
+          xhrFields: {
+            withCredentials: true
+          },
+          crossDomain: true
+        });
+        
         // Método 1: Autenticación manual primero
         $.ajax({
           url: "https://multicobros.banorte.com/orquestador/authenticateV2",
           data: JSON.stringify({ 
             crypt: clientSecret,
+            // Incluir datos adicionales que podría necesitar
             numeroControl: orderId,
             monto: amount
           }),
@@ -227,12 +197,6 @@
           type: "POST",
           success: function(response) {
             log("✅ Autenticación exitosa");
-            
-            // Log detallado de la respuesta
-            log("📋 Respuesta completa de authenticateV2:");
-            for (const key in response) {
-              log(`- ${key}: ${typeof response[key] === 'object' ? JSON.stringify(response[key]) : response[key]}`);
-            }
             
             if (response && response.token) {
               log("✅ Token recibido: " + response.token.substring(0, 10) + "...");
@@ -255,13 +219,6 @@
               if (response.form) {
                 sessionStorage.setItem("form", JSON.stringify(response.form));
                 log("📑 Datos de formulario recibidos");
-              }
-              
-              // Ver datos de payment en sessionStorage antes de llamar
-              log("📋 Contenido de sessionStorage antes de startPayment:");
-              for (let i = 0; i < sessionStorage.length; i++) {
-                const key = sessionStorage.key(i);
-                log(`- ${key}: ${sessionStorage.getItem(key)}`);
               }
               
               // Ahora iniciar el pago
@@ -293,22 +250,16 @@
       log("🚀 Abriendo pago con token recibido");
       
       try {
-        // Vamos a intentar ver el código fuente de Payment.startPayment
-        try {
-          log("🔍 Inspeccionando función startPayment:");
-          const functionStr = Payment.startPayment.toString();
-          log(functionStr.length > 100 ? functionStr.substring(0, 100) + "..." : functionStr);
-        } catch (e) {
-          log("⚠️ No se pudo inspeccionar Payment.startPayment: " + e.message);
-        }
-        
-        // Crear un objeto con TODOS los datos posibles
+        // Crear un objeto con TODOS los datos posibles que Banorte podría necesitar
         const paymentOptions = {
           crypt: clientSecret,
           token: token,
           numeroControl: orderId,
           monto: amount,
-          datos: { 
+          // Datos precargados desde sessionStorage
+          moneda: "MXN",
+          tipo: "venta",
+          datos: {
             numeroControl: orderId,
             monto: amount
           },
@@ -331,6 +282,17 @@
             document.getElementById('status').innerText = "Error en el pago";
             enviarMensajeAFlutter("error:" + JSON.stringify(err));
             document.getElementById('payButton').disabled = false;
+            
+            // Mostrar detalles del error
+            if (err && err.message) {
+              log("📋 Detalle del error: " + err.message);
+            }
+            
+            // Mostrar si hay problema con los datos
+            log("📋 Estado actual de datos:");
+            log("- numeroControl en sessionStorage: " + sessionStorage.getItem("numeroControl"));
+            log("- monto en sessionStorage: " + sessionStorage.getItem("monto"));
+            log("- token en sessionStorage: " + (sessionStorage.getItem("token") ? "presente" : "ausente"));
           },
           onSuccess: function(res) {
             log("✅ Pago exitoso: " + JSON.stringify(res));
@@ -339,37 +301,8 @@
           }
         };
         
-        // Log detallado de las opciones
-        log("📋 Opciones enviadas a Payment.startPayment:");
-        for (const key in paymentOptions) {
-          if (typeof paymentOptions[key] !== 'function') {
-            log(`- ${key}: ${typeof paymentOptions[key] === 'object' ? JSON.stringify(paymentOptions[key]) : paymentOptions[key]}`);
-          } else {
-            log(`- ${key}: [Function]`);
-          }
-        }
-        
-        // MODIFICACIÓN CLAVE: Intentar recrear la estructura que espera Banorte
-        // Basándonos en el error "No contiene datos.*"
-        const newPaymentOptions = {
-          Params: {
-            crypt: clientSecret,
-            token: token,
-            numeroControl: orderId,
-            monto: amount
-          },
-          onOpened: paymentOptions.onOpened,
-          onClosed: paymentOptions.onClosed,
-          onCancel: paymentOptions.onCancel,
-          onError: paymentOptions.onError,
-          onSuccess: paymentOptions.onSuccess
-        };
-        
-        log("🔄 Intentando con estructura anidada (Params)");
-        log(JSON.stringify(newPaymentOptions.Params));
-        
-        // Iniciar el pago con la nueva estructura
-        Payment.startPayment(newPaymentOptions);
+        // Intentar iniciar el pago
+        Payment.startPayment(paymentOptions);
         
       } catch (error) {
         log("❌ Error al abrir pago: " + error.message);
@@ -382,9 +315,16 @@
       log("🚀 Intentando método directo sin autenticación previa");
       
       try {
-        // Intento alternativo con otra estructura
-        const directOptions = {
-          Params: clientSecret,  // Probar pasando directamente el clientSecret
+        // Intento alternativo directo
+        const paymentOptions = {
+          crypt: clientSecret,
+          numeroControl: orderId,
+          monto: amount,
+          // Incluir estructura de datos adicional
+          datos: {
+            numeroControl: orderId,
+            monto: amount
+          },
           onOpened: function() {
             log("✅ Ventana de pago abierta (método directo)");
             document.getElementById('status').innerText = "Procesando pago...";
@@ -412,8 +352,7 @@
           }
         };
         
-        log("🔄 Intentando con método directo");
-        Payment.startPayment(directOptions);
+        Payment.startPayment(paymentOptions);
         
       } catch (error) {
         log("❌ Error en método directo: " + error.message);
