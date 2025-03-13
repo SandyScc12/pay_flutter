@@ -127,8 +127,6 @@
       }
       
       log("✅ ClientSecret recibido: " + clientSecret.substring(0, 20) + "...");
-      log("📋 Order ID: " + orderId);
-      log("💰 Monto: " + amount);
       
       // Verificar disponibilidad de Payment API
       verificarPaymentDisponible();
@@ -155,7 +153,7 @@
     }
     
     function iniciarPago() {
-      log("🚀 Iniciando proceso de pago directo...");
+      log("🚀 Iniciando proceso de pago...");
       document.getElementById('status').innerText = "Conectando con Banorte...";
       document.getElementById('payButton').disabled = true;
       
@@ -164,46 +162,127 @@
         Payment.setEnv("pro");
         log("✅ Entorno configurado a producción");
         
-        // ENFOQUE DIRECTO: Probar directamente con el clientSecret como único parámetro
-        log("🔑 Intentando pago con enfoque directo");
+        // Preparar autenticación manual primero
+        log("🔑 Enviando autenticación a Banorte");
         
+        // Método 1: Autenticación manual primero (como se ve en la captura de pantalla)
+        $.ajax({
+          url: "https://multicobros.banorte.com/orquestador/authenticateV2",
+          data: JSON.stringify({ crypt: clientSecret }), // EXACTAMENTE como en la captura de pantalla
+          contentType: "application/json",
+          dataType: "json",
+          type: "POST",
+          success: function(response) {
+            log("✅ Autenticación exitosa");
+            
+            if (response && response.token) {
+              log("✅ Token recibido: " + response.token.substring(0, 10) + "...");
+              
+              // Almacenar el token en sessionStorage (parece que checkoutV2.js lo necesita)
+              sessionStorage.setItem("token", response.token);
+              
+              // Ahora iniciar el pago
+              abrirPagoConToken(response.token);
+            } else {
+              log("⚠️ No se recibió token en la respuesta");
+              document.getElementById('status').innerText = "Error: No se recibió token de autenticación";
+              document.getElementById('payButton').disabled = false;
+            }
+          },
+          error: function(xhr, status, error) {
+            log("❌ Error en autenticación: " + status + " - " + error);
+            log("Respuesta: " + (xhr.responseText || "No hay respuesta"));
+            
+            // Si falla la autenticación manual, intentar el método directo
+            log("⚠️ Intentando método directo como fallback...");
+            iniciarPagoDirecto();
+          }
+        });
+        
+      } catch (error) {
+        log("❌ Error al iniciar proceso: " + error.message);
+        document.getElementById('status').innerText = "Error al iniciar pago";
+        document.getElementById('payButton').disabled = false;
+      }
+    }
+    
+    function abrirPagoConToken(token) {
+      log("🚀 Abriendo pago con token recibido");
+      
+      try {
+        // Usar el token recibido para iniciar el pago
         Payment.startPayment({
-          Params: clientSecret,  // IMPORTANTE: Pasamos el clientSecret directamente sin encapsularlo
-          onOpened: () => {
+          crypt: clientSecret,  // Pasamos crypt como se ve en la captura de pantalla
+          token: token,
+          onOpened: function() {
             log("✅ Ventana de pago abierta");
             document.getElementById('status').innerText = "Procesando pago...";
           },
-          onClosed: () => {
+          onClosed: function() {
             log("⚠️ Ventana de pago cerrada");
             document.getElementById('status').innerText = "Pago cancelado";
             enviarMensajeAFlutter("error:Pago cancelado por el usuario");
           },
-          onCancel: () => {
+          onCancel: function() {
             log("⚠️ Pago cancelado");
             document.getElementById('status').innerText = "Pago cancelado";
             enviarMensajeAFlutter("error:Pago cancelado");
           },
-          onError: (err) => {
+          onError: function(err) {
             log("❌ Error en el pago: " + JSON.stringify(err));
             document.getElementById('status').innerText = "Error en el pago";
             enviarMensajeAFlutter("error:" + JSON.stringify(err));
-            
-            // Reactivar botón para reintentar
             document.getElementById('payButton').disabled = false;
           },
-          onSuccess: (res) => {
+          onSuccess: function(res) {
             log("✅ Pago exitoso: " + JSON.stringify(res));
             document.getElementById('status').innerText = "¡Pago completado exitosamente!";
             enviarMensajeAFlutter("success:Pago completado");
-          },
+          }
         });
-        
       } catch (error) {
-        log("❌ Error al iniciar pago: " + error.message);
-        document.getElementById('status').innerText = "Error al iniciar pago";
-        enviarMensajeAFlutter("error:" + error.message);
-        
-        // Reactivar botón para reintentar
+        log("❌ Error al abrir pago: " + error.message);
+        document.getElementById('status').innerText = "Error al abrir pago";
+        document.getElementById('payButton').disabled = false;
+      }
+    }
+    
+    function iniciarPagoDirecto() {
+      log("🚀 Intentando método directo sin autenticación previa");
+      
+      try {
+        // Intento alternativo directo (por si el método principal falla)
+        Payment.startPayment({
+          crypt: clientSecret,  // Pasamos clientSecret como 'crypt'
+          onOpened: function() {
+            log("✅ Ventana de pago abierta (método directo)");
+            document.getElementById('status').innerText = "Procesando pago...";
+          },
+          onClosed: function() {
+            log("⚠️ Ventana de pago cerrada (método directo)");
+            document.getElementById('status').innerText = "Pago cancelado";
+            enviarMensajeAFlutter("error:Pago cancelado por el usuario");
+          },
+          onCancel: function() {
+            log("⚠️ Pago cancelado (método directo)");
+            document.getElementById('status').innerText = "Pago cancelado";
+            enviarMensajeAFlutter("error:Pago cancelado");
+          },
+          onError: function(err) {
+            log("❌ Error en el pago (método directo): " + JSON.stringify(err));
+            document.getElementById('status').innerText = "Error en el pago";
+            enviarMensajeAFlutter("error:" + JSON.stringify(err));
+            document.getElementById('payButton').disabled = false;
+          },
+          onSuccess: function(res) {
+            log("✅ Pago exitoso (método directo): " + JSON.stringify(res));
+            document.getElementById('status').innerText = "¡Pago completado exitosamente!";
+            enviarMensajeAFlutter("success:Pago completado");
+          }
+        });
+      } catch (error) {
+        log("❌ Error en método directo: " + error.message);
+        document.getElementById('status').innerText = "Error al procesar el pago";
         document.getElementById('payButton').disabled = false;
       }
     }
