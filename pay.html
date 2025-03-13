@@ -130,8 +130,15 @@
             console.log("🔵 Pago cancelado");
             enviarMensajeAFlutter("error:Pago cancelado");
           },
-          onError: (err) => {
+         onError: (err) => {
             console.error("🔴 Error en el pago:", err);
+        
+            if (err.numeroControl) {
+                console.error("📌 Número de control:", err.numeroControl);
+            } else {
+                console.warn("⚠️ No se recibió numeroControl. Respuesta incompleta.");
+            }
+        
             enviarMensajeAFlutter("error:" + JSON.stringify(err));
           },
           onSuccess: (res) => {
