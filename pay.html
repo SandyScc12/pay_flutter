@@ -106,6 +106,7 @@
     }
 
     function iniciarPago() {
+      console.log("🟢 clientSecret antes de iniciar pago:", clientSecret);
       console.log("🟢 Iniciando pago con Payment API (checkoutV2.js)");
       print("🔍 clientSecret enviado a WebView: $_encryptedData");
       console.log("🟢 $_encryptedData)");
@@ -113,6 +114,9 @@
         Payment.setEnv("pro"); // o 'production' si Banorte lo requiere
         
         Payment.startPayment({
+          Params: {
+            crypt: clientSecret  // Asegúrate de enviar "crypt"
+          },
           form: '',   // ← IMPORTANTE: Evita "No contiene datos.*"
           crypt: clientSecret,   // Enviar el clientSecret que viene del backend
           onOpened: () => {
