@@ -75,7 +75,6 @@
     const params = new URLSearchParams(window.location.search);
     let clientSecret = params.get('clientSecret');
 
-    // Para comunicarte con Flutter (opcional)
     function enviarMensajeAFlutter(mensaje) {
       if (window.FlutterChannel) {
         window.FlutterChannel.postMessage(mensaje);
@@ -95,7 +94,6 @@
         document.getElementById('loader').style.display = 'none';
         document.getElementById('payButton').style.display = 'inline-block';
 
-        // Asigna evento a botón
         document.getElementById('payButton').onclick = function() {
           iniciarPago();
         };
@@ -108,17 +106,45 @@
     function iniciarPago() {
       console.log("🟢 clientSecret antes de iniciar pago:", clientSecret);
       console.log("🟢 Iniciando pago con Payment API (checkoutV2.js)");
-      print("🔍 clientSecret enviado a WebView: $_encryptedData");
-      console.log("🟢 $_encryptedData)");
+
       try {
-        Payment.setEnv("pro"); // o 'production' si Banorte lo requiere
+        Payment.setEnv("pro"); 
+
+        console.log("🔍 Enviando clientSecret a authenticateV2:", clientSecret);
         
+        // PRUEBA: Validar si authenticateV2 responde bien
+        $.ajax({
+            url: "https://multicobros.banorte.com/orquestador/authenticateV2",
+            data: JSON.stringify({ crypt: clientSecret }),
+            headers: { "Content-Type": "application/json", "Accept": "text/plain; charset=utf-8;" },
+            type: 'POST',
+            success: function (response) {
+                console.log("✅ Respuesta exitosa de authenticateV2:", response);
+                sessionStorage.setItem("token", response.token);
+                ejecutarPago(response.token);
+            },
+            error: function (error) {
+                console.error("🔴 Error en authenticateV2:", error);
+                enviarMensajeAFlutter("error:No se pudo autenticar el usuario");
+            }
+        });
+
+      } catch (error) {
+        console.error("🔴 Error al iniciar Payment:", error);
+        enviarMensajeAFlutter("error:" + error.message);
+      }
+    }
+
+    function ejecutarPago(token) {
+      console.log("🟢 Ejecutando pago con token recibido:", token);
+
+      try {
         Payment.startPayment({
           Params: {
-            crypt: clientSecret  // Asegúrate de enviar "crypt"
+            crypt: clientSecret  
           },
-          form: '',   // ← IMPORTANTE: Evita "No contiene datos.*"
-          crypt: clientSecret,   // Enviar el clientSecret que viene del backend
+          form: '',   
+          crypt: clientSecret,  
           onOpened: () => {
             console.log("🔵 Ventana de pago abierta");
           },
@@ -130,7 +156,7 @@
             console.log("🔵 Pago cancelado");
             enviarMensajeAFlutter("error:Pago cancelado");
           },
-         onError: (err) => {
+          onError: (err) => {
             console.error("🔴 Error en el pago:", err);
         
             if (err.numeroControl) {
@@ -149,7 +175,7 @@
         });
 
       } catch (error) {
-        console.error("🔴 Error al iniciar Payment:", error);
+        console.error("🔴 Error al ejecutar Payment:", error);
         enviarMensajeAFlutter("error:" + error.message);
       }
     }
