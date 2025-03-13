@@ -1,14 +1,12 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-  <meta charset="utf-8">
-  <title>Pago con Banorte</title>
-  <!-- Ajuste viewport para móviles -->
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Pago con Banorte</title>
 
-  <!-- jQuery 3.3.1 -->
+  <!-- Incluir solo los scripts necesarios de Banorte -->
   <script src="https://multicobros.banorte.com/orquestador/resources/js/jquery-3.3.1.js"></script>
-  <!-- checkoutV2.js -->
   <script src="https://multicobros.banorte.com/orquestador/lightbox/checkoutV2.js"></script>
 
   <style>
@@ -38,11 +36,7 @@
       color: #E4002B;
       margin-bottom: 15px;
     }
-    #status {
-      margin: 10px 0;
-      font-weight: bold;
-    }
-    #loader {
+    .loader {
       border: 5px solid #f3f3f3;
       border-top: 5px solid #E4002B;
       border-radius: 50%;
@@ -55,16 +49,15 @@
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
-    #payButton {
+    .button {
       background-color: #E4002B;
-      color: #fff;
+      color: white;
       border: none;
-      padding: 12px 20px;
-      border-radius: 5px;
+      padding: 10px 20px;
+      border-radius: 4px;
       font-size: 16px;
       cursor: pointer;
       margin-top: 15px;
-      display: none;
     }
   </style>
 </head>
@@ -72,77 +65,79 @@
   <div class="container">
     <h2>Procesando pago con Banorte</h2>
     <p id="status">Cargando...</p>
-    <div id="loader"></div>
-    <button id="payButton">Iniciar Pago</button>
+    <div class="loader" id="loader"></div>
+    
+    <button id="payButton" class="button" style="display:none;">Iniciar Pago</button>
   </div>
 
   <script>
-    // Lee el clientSecret desde la query param: ?clientSecret=...
-    const urlParams = new URLSearchParams(window.location.search);
-    let clientSecret = urlParams.get("clientSecret") || ""; 
+    // Obtiene el clientSecret de la URL
+    const params = new URLSearchParams(window.location.search);
+    let clientSecret = params.get('clientSecret');
 
-    // Función para comunicar resultados a Flutter
+    // Para comunicarte con Flutter (opcional)
     function enviarMensajeAFlutter(mensaje) {
       if (window.FlutterChannel) {
         window.FlutterChannel.postMessage(mensaje);
       }
     }
 
-    // Espera a que checkoutV2.js defina Payment
     document.addEventListener('DOMContentLoaded', function() {
-      console.log("🟢 DOMContentLoaded: Revisando Payment...");
+      console.log("🟢 DOMContentLoaded: Verificando Payment");
       verificarPaymentDisponible();
     });
 
     function verificarPaymentDisponible() {
-      if (typeof Payment !== "undefined" && Payment) {
+      if (typeof Payment !== 'undefined' && Payment) {
         console.log("✅ Payment está disponible");
-        document.getElementById('status').textContent = "Listo para iniciar pago";
+
+        document.getElementById('status').innerText = "Listo para iniciar pago.";
         document.getElementById('loader').style.display = 'none';
         document.getElementById('payButton').style.display = 'inline-block';
 
-        // Al dar click, inicia el pago
-        document.getElementById('payButton').onclick = iniciarPago;
+        // Asigna evento a botón
+        document.getElementById('payButton').onclick = function() {
+          iniciarPago();
+        };
       } else {
-        console.log("⌛ Payment no disponible aún, reintentando...");
+        console.log("🔵 Payment no disponible aún, reintentando...");
         setTimeout(verificarPaymentDisponible, 1000);
       }
     }
 
     function iniciarPago() {
-      console.log("🟢 Iniciando Pago con Banorte, usando Payment.setEnv('pro') y Payment.startPayment()");
+      console.log("🟢 Iniciando pago con Payment API (checkoutV2.js)");
 
       try {
-        // Ajusta "pro" o "production" según tu entorno
-        Payment.setEnv("pro"); 
-
-        // En lugar de "Params:", usar "crypt:" 
+        Payment.setEnv("pro"); // o 'production' si Banorte lo requiere
+        
         Payment.startPayment({
-          crypt: clientSecret,
+          form: '',   // ← IMPORTANTE: Evita "No contiene datos.*"
+          crypt: clientSecret,   // Enviar el clientSecret que viene del backend
           onOpened: () => {
-            console.log("Ventana de pago abierta");
+            console.log("🔵 Ventana de pago abierta");
           },
           onClosed: () => {
-            console.log("Ventana cerrada");
+            console.log("🔵 Ventana de pago cerrada");
             enviarMensajeAFlutter("error:Pago cancelado por el usuario");
           },
           onCancel: () => {
-            console.log("Pago cancelado");
+            console.log("🔵 Pago cancelado");
             enviarMensajeAFlutter("error:Pago cancelado");
           },
           onError: (err) => {
-            console.error("Error en el pago:", err);
-            // Mandar error a Flutter
+            console.error("🔴 Error en el pago:", err);
             enviarMensajeAFlutter("error:" + JSON.stringify(err));
           },
           onSuccess: (res) => {
-            console.log("Pago exitoso:", res);
+            console.log("✅ Pago exitoso:", res);
             enviarMensajeAFlutter("success:Pago completado");
-            document.getElementById('status').textContent = "¡Pago completado exitosamente!";
+            document.getElementById('status').innerText = "¡Pago completado exitosamente!";
           },
         });
+
       } catch (error) {
-        console.error("Error al iniciar Payment:", error);
+        console.error("🔴 Error al iniciar Payment:", error);
         enviarMensajeAFlutter("error:" + error.message);
       }
     }
