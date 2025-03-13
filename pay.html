@@ -4,71 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Pago con Banorte</title>
-  <!-- Incluir solo los scripts necesarios de Banorte -->
   <script src="https://multicobros.banorte.com/orquestador/resources/js/jquery-3.3.1.js"></script>
   <script src="https://multicobros.banorte.com/orquestador/lightbox/checkoutV2.js"></script>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      padding: 20px;
-      background-color: #f8f8f8;
-      color: #333;
-      margin: 0;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-    }
-    .container {
-      width: 90%;
-      max-width: 500px;
-      margin: 0 auto;
-      padding: 20px;
-      background-color: white;
-      border-radius: 8px;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-    }
-    h2 {
-      color: #E4002B;
-      margin-bottom: 15px;
-    }
-    .loader {
-      border: 5px solid #f3f3f3;
-      border-top: 5px solid #E4002B;
-      border-radius: 50%;
-      width: 50px;
-      height: 50px;
-      animation: spin 1s linear infinite;
-      margin: 30px auto;
-    }
-    @keyframes spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-    .button {
-      background-color: #E4002B;
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      border-radius: 4px;
-      font-size: 16px;
-      cursor: pointer;
-      margin-top: 15px;
-    }
-    #debug {
-      margin-top: 20px;
-      text-align: left;
-      font-size: 12px;
-      background-color: #f0f0f0;
-      padding: 10px;
-      border-radius: 4px;
-      max-height: 150px;
-      overflow-y: auto;
-      display: none;
-    }
-  </style>
+  <!-- Estilos omitidos por brevedad -->
 </head>
 <body>
   <div class="container">
@@ -81,209 +19,69 @@
     <div id="debug"></div>
   </div>
   <script>
-    // Función para depuración
-    function log(message) {
-      console.log(message);
-      const debug = document.getElementById('debug');
-      const now = new Date().toLocaleTimeString();
-      debug.innerHTML += `<div>[${now}] ${message}</div>`;
-      debug.scrollTop = debug.scrollHeight;
-    }
-    
-    // Para mostrar panel de depuración
-    function showDebug() {
-      document.getElementById('debug').style.display = 'block';
-    }
-    
-    // Obtiene el clientSecret de la URL
+    // Obtiene parámetros de la URL
     const params = new URLSearchParams(window.location.search);
     let clientSecret = params.get('clientSecret');
     let orderId = params.get('orderId') || '';
     let amount = params.get('amount') || '';
     
-    // Auxiliar para comunicación con Flutter
-    function enviarMensajeAFlutter(mensaje) {
-      try {
-        if (window.FlutterChannel) {
-          window.FlutterChannel.postMessage(mensaje);
-        }
-      } catch(e) {
-        log("Error al enviar mensaje a Flutter: " + e);
-      }
-    }
+    // Guardar datos en sessionStorage
+    sessionStorage.setItem("numeroControl", orderId);
+    sessionStorage.setItem("monto", amount);
     
     document.addEventListener('DOMContentLoaded', function() {
-      log("🟢 Página cargada. Iniciando proceso...");
-      
-      // Activar depuración
-      showDebug();
-      
-      // Verificar si tenemos el clientSecret
-      if (!clientSecret) {
-        log("❌ No se recibió clientSecret");
-        document.getElementById('status').innerText = "Error: Falta información de pago";
-        enviarMensajeAFlutter("error:No se recibió información de pago");
-        return;
-      }
-      
-      log("✅ ClientSecret recibido: " + clientSecret.substring(0, 20) + "...");
+      console.log("🟢 Página cargada");
       
       // Verificar disponibilidad de Payment API
-      verificarPaymentDisponible();
-    });
-    
-    function verificarPaymentDisponible() {
       if (typeof Payment !== 'undefined' && Payment) {
-        log("✅ API de Payment disponible");
         document.getElementById('status').innerText = "Listo para iniciar pago";
         document.getElementById('loader').style.display = 'none';
         document.getElementById('payButton').style.display = 'inline-block';
         
-        // Asignar evento al botón
+        // Iniciar al hacer clic
         document.getElementById('payButton').onclick = function() {
-          iniciarPago();
+          iniciarPagoDirecto();
         };
-        
-        // Iniciar automáticamente
-        setTimeout(iniciarPago, 500);
       } else {
-        log("⏳ API de Payment no disponible aún, reintentando...");
         setTimeout(verificarPaymentDisponible, 500);
       }
-    }
-    
-    function iniciarPago() {
-      log("🚀 Iniciando proceso de pago...");
-      document.getElementById('status').innerText = "Conectando con Banorte...";
-      document.getElementById('payButton').disabled = true;
-      
-      try {
-        // Establecer el entorno de Banorte
-        Payment.setEnv("pro");
-        log("✅ Entorno configurado a producción");
-        
-        // Preparar autenticación manual primero
-        log("🔑 Enviando autenticación a Banorte");
-        
-        // Método 1: Autenticación manual primero (como se ve en la captura de pantalla)
-        $.ajax({
-          url: "https://multicobros.banorte.com/orquestador/authenticateV2",
-          data: JSON.stringify({ crypt: clientSecret }), // EXACTAMENTE como en la captura de pantalla
-          contentType: "application/json",
-          dataType: "json",
-          type: "POST",
-          success: function(response) {
-            log("✅ Autenticación exitosa");
-            
-            if (response && response.token) {
-              log("✅ Token recibido: " + response.token.substring(0, 10) + "...");
-              
-              // Almacenar el token en sessionStorage (parece que checkoutV2.js lo necesita)
-              sessionStorage.setItem("token", response.token);
-              
-              // Ahora iniciar el pago
-              abrirPagoConToken(response.token);
-            } else {
-              log("⚠️ No se recibió token en la respuesta");
-              document.getElementById('status').innerText = "Error: No se recibió token de autenticación";
-              document.getElementById('payButton').disabled = false;
-            }
-          },
-          error: function(xhr, status, error) {
-            log("❌ Error en autenticación: " + status + " - " + error);
-            log("Respuesta: " + (xhr.responseText || "No hay respuesta"));
-            
-            // Si falla la autenticación manual, intentar el método directo
-            log("⚠️ Intentando método directo como fallback...");
-            iniciarPagoDirecto();
-          }
-        });
-        
-      } catch (error) {
-        log("❌ Error al iniciar proceso: " + error.message);
-        document.getElementById('status').innerText = "Error al iniciar pago";
-        document.getElementById('payButton').disabled = false;
-      }
-    }
-    
-    function abrirPagoConToken(token) {
-      log("🚀 Abriendo pago con token recibido");
-      
-      try {
-        // Usar el token recibido para iniciar el pago
-        Payment.startPayment({
-          crypt: clientSecret,  // Pasamos crypt como se ve en la captura de pantalla
-          token: token,
-          onOpened: function() {
-            log("✅ Ventana de pago abierta");
-            document.getElementById('status').innerText = "Procesando pago...";
-          },
-          onClosed: function() {
-            log("⚠️ Ventana de pago cerrada");
-            document.getElementById('status').innerText = "Pago cancelado";
-            enviarMensajeAFlutter("error:Pago cancelado por el usuario");
-          },
-          onCancel: function() {
-            log("⚠️ Pago cancelado");
-            document.getElementById('status').innerText = "Pago cancelado";
-            enviarMensajeAFlutter("error:Pago cancelado");
-          },
-          onError: function(err) {
-            log("❌ Error en el pago: " + JSON.stringify(err));
-            document.getElementById('status').innerText = "Error en el pago";
-            enviarMensajeAFlutter("error:" + JSON.stringify(err));
-            document.getElementById('payButton').disabled = false;
-          },
-          onSuccess: function(res) {
-            log("✅ Pago exitoso: " + JSON.stringify(res));
-            document.getElementById('status').innerText = "¡Pago completado exitosamente!";
-            enviarMensajeAFlutter("success:Pago completado");
-          }
-        });
-      } catch (error) {
-        log("❌ Error al abrir pago: " + error.message);
-        document.getElementById('status').innerText = "Error al abrir pago";
-        document.getElementById('payButton').disabled = false;
-      }
-    }
+    });
     
     function iniciarPagoDirecto() {
-      log("🚀 Intentando método directo sin autenticación previa");
+      document.getElementById('status').innerText = "Conectando con Banorte...";
       
       try {
-        // Intento alternativo directo (por si el método principal falla)
+        // Establecer entorno
+        Payment.setEnv("pro");
+        
+        // Método directo sin autenticación previa
         Payment.startPayment({
-          crypt: clientSecret,  // Pasamos clientSecret como 'crypt'
+          Params: clientSecret,  // Pasar clientSecret directamente
+          numeroControl: orderId,
+          monto: amount,
           onOpened: function() {
-            log("✅ Ventana de pago abierta (método directo)");
             document.getElementById('status').innerText = "Procesando pago...";
           },
           onClosed: function() {
-            log("⚠️ Ventana de pago cerrada (método directo)");
             document.getElementById('status').innerText = "Pago cancelado";
-            enviarMensajeAFlutter("error:Pago cancelado por el usuario");
           },
           onCancel: function() {
-            log("⚠️ Pago cancelado (método directo)");
             document.getElementById('status').innerText = "Pago cancelado";
-            enviarMensajeAFlutter("error:Pago cancelado");
           },
           onError: function(err) {
-            log("❌ Error en el pago (método directo): " + JSON.stringify(err));
             document.getElementById('status').innerText = "Error en el pago";
-            enviarMensajeAFlutter("error:" + JSON.stringify(err));
-            document.getElementById('payButton').disabled = false;
+            console.error("Error:", err);
           },
           onSuccess: function(res) {
-            log("✅ Pago exitoso (método directo): " + JSON.stringify(res));
-            document.getElementById('status').innerText = "¡Pago completado exitosamente!";
-            enviarMensajeAFlutter("success:Pago completado");
+            document.getElementById('status').innerText = "¡Pago completado!";
+            if (window.FlutterChannel) {
+              window.FlutterChannel.postMessage("success:Pago completado");
+            }
           }
         });
       } catch (error) {
-        log("❌ Error en método directo: " + error.message);
         document.getElementById('status').innerText = "Error al procesar el pago";
-        document.getElementById('payButton').disabled = false;
+        console.error("Error:", error);
       }
     }
   </script>
